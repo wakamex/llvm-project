@@ -1503,7 +1503,15 @@ Expected<Value *> BitcodeReader::materializeValue(unsigned StartValID,
           if (!BBID)
             // Invalid reference to entry block.
             return error("Invalid ID");
-          if (!Fn->empty()) {
+          if (!FunctionBBs.empty() && FunctionBBs[0]->getParent() == Fn) {
+            // The function being parsed takes the address of one of its own
+            // blocks. Its block list is FunctionBBs, in order, so index it
+            // rather than walk the list: a function with N blocks taking
+            // each one's address would otherwise cost N^2 steps to load.
+            if (BBID >= FunctionBBs.size())
+              return error("Invalid ID");
+            BB = FunctionBBs[BBID];
+          } else if (!Fn->empty()) {
             Function::iterator BBI = Fn->begin(), BBE = Fn->end();
             for (size_t I = 0, E = BBID; I != E; ++I) {
               if (BBI == BBE)
