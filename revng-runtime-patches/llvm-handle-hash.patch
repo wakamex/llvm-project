@@ -1,0 +1,50 @@
+--- a/llvm/lib/IR/LLVMContextImpl.h
++++ b/llvm/lib/IR/LLVMContextImpl.h
+@@ -1542,7 +1542,17 @@
+   /// ValueHandles - This map keeps track of all of the value handles that are
+   /// watching a Value*.  The Value::HasValueHandle bit is used to know
+   /// whether or not a value has an entry in this map.
+-  using ValueHandlesTy = DenseMap<Value *, ValueHandleBase *>;
++  struct ValueHandleMapInfo : DenseMapInfo<Value *> {
++    static unsigned getHashValue(const Value *V) {
++      // Preserve high address bits in large value-handle tables.
++      uint64_t Key = reinterpret_cast<uintptr_t>(V);
++      Key *= 0xbf58476d1ce4e5b9ULL;
++      Key ^= Key >> 31;
++      return static_cast<unsigned>(Key);
++    }
++  };
++  using ValueHandlesTy =
++      DenseMap<Value *, ValueHandleBase *, ValueHandleMapInfo>;
+   ValueHandlesTy ValueHandles;
+ 
+   /// CustomMDKindNames - Map to hold the metadata string to ID mapping.
+--- a/llvm/lib/IR/Value.cpp
++++ b/llvm/lib/IR/Value.cpp
+@@ -1068,7 +1068,7 @@
+   // reallocate itself, which would invalidate all of the PrevP pointers that
+   // point into the old table.  Handle this by checking for reallocation and
+   // updating the stale pointers only if needed.
+-  DenseMap<Value*, ValueHandleBase*> &Handles = pImpl->ValueHandles;
++  LLVMContextImpl::ValueHandlesTy &Handles = pImpl->ValueHandles;
+   const void *OldBucketPtr = Handles.getPointerIntoBucketsArray();
+ 
+   ValueHandleBase *&Entry = Handles[getValPtr()];
+@@ -1084,7 +1084,7 @@
+   }
+ 
+   // Okay, reallocation did happen.  Fix the Prev Pointers.
+-  for (DenseMap<Value*, ValueHandleBase*>::iterator I = Handles.begin(),
++  for (LLVMContextImpl::ValueHandlesTy::iterator I = Handles.begin(),
+        E = Handles.end(); I != E; ++I) {
+     assert(I->second && I->first == I->second->getValPtr() &&
+            "List invariant broken!");
+@@ -1111,7 +1111,7 @@
+   // ValueHandle watching VP.  If so, delete its entry from the ValueHandles
+   // map.
+   LLVMContextImpl *pImpl = getValPtr()->getContext().pImpl;
+-  DenseMap<Value*, ValueHandleBase*> &Handles = pImpl->ValueHandles;
++  LLVMContextImpl::ValueHandlesTy &Handles = pImpl->ValueHandles;
+   if (Handles.isPointerIntoBucketsArray(PrevPtr)) {
+     Handles.erase(getValPtr());
+     getValPtr()->HasValueHandle = false;

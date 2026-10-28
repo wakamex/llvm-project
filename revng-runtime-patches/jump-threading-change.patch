@@ -1,0 +1,97 @@
+diff -ru '--color=never' a/llvm/lib/Analysis/DomTreeUpdater.cpp b/llvm/lib/Analysis/DomTreeUpdater.cpp
+--- a/llvm/lib/Analysis/DomTreeUpdater.cpp	2026-10-28 08:27:27.798408653 -0400
++++ b/llvm/lib/Analysis/DomTreeUpdater.cpp	2026-10-28 08:27:19.851565270 -0400
+@@ -14,6 +14,7 @@
+ #include "llvm/Analysis/DomTreeUpdater.h"
+ #include "llvm/ADT/SmallSet.h"
+ #include "llvm/Analysis/PostDominators.h"
++#include "llvm/IR/CFG.h"
+ #include "llvm/IR/Constants.h"
+ #include "llvm/IR/Instructions.h"
+ #include "llvm/Support/GenericDomTree.h"
+@@ -23,6 +24,28 @@
+ 
+ namespace llvm {
+ 
++/// Whether \p From branches to \p To. The successors of \p From and the
++/// predecessors of \p To are walked alternately, so the cost is bounded by
++/// twice the shorter list: a block with millions of successors or
++/// predecessors, such as a dispatcher, does not have to be walked in full.
++static bool hasEdge(const BasicBlock *From, const BasicBlock *To) {
++  auto Successor = succ_begin(From), SuccessorEnd = succ_end(From);
++  auto Predecessor = pred_begin(To), PredecessorEnd = pred_end(To);
++  while (true) {
++    if (Successor == SuccessorEnd)
++      return false;
++    if (*Successor == To)
++      return true;
++    ++Successor;
++
++    if (Predecessor == PredecessorEnd)
++      return false;
++    if (*Predecessor == From)
++      return true;
++    ++Predecessor;
++  }
++}
++
+ bool DomTreeUpdater::isUpdateValid(
+     const DominatorTree::UpdateType Update) const {
+   const auto *From = Update.getFrom();
+@@ -33,7 +56,7 @@
+   // Since isUpdateValid() must be called *after* the Terminator of From is
+   // altered we can determine if the update is unnecessary for batch updates
+   // or invalid for a single update.
+-  const bool HasEdge = llvm::is_contained(successors(From), To);
++  const bool HasEdge = hasEdge(From, To);
+ 
+   // If the IR does not match the update,
+   // 1. In batch updates, this update is unnecessary.
+diff -ru '--color=never' a/llvm/lib/Transforms/Utils/Local.cpp b/llvm/lib/Transforms/Utils/Local.cpp
+--- a/llvm/lib/Transforms/Utils/Local.cpp	2026-10-28 08:27:27.794504813 -0400
++++ b/llvm/lib/Transforms/Utils/Local.cpp	2026-10-28 08:27:19.823567063 -0400
+@@ -1067,6 +1067,28 @@
+   replaceUndefValuesInPhi(PN, IncomingValues);
+ }
+ 
++/// Whether \p From branches to \p To. The successors of \p From and the
++/// predecessors of \p To are walked alternately, so the cost is bounded by
++/// twice the shorter list: a block with millions of successors or
++/// predecessors, such as a dispatcher, does not have to be walked in full.
++static bool hasEdge(const BasicBlock *From, const BasicBlock *To) {
++  auto Successor = succ_begin(From), SuccessorEnd = succ_end(From);
++  auto Predecessor = pred_begin(To), PredecessorEnd = pred_end(To);
++  while (true) {
++    if (Successor == SuccessorEnd)
++      return false;
++    if (*Successor == To)
++      return true;
++    ++Successor;
++
++    if (Predecessor == PredecessorEnd)
++      return false;
++    if (*Predecessor == From)
++      return true;
++    ++Predecessor;
++  }
++}
++
+ bool llvm::TryToSimplifyUncondBranchFromEmptyBlock(BasicBlock *BB,
+                                                    DomTreeUpdater *DTU) {
+   assert(BB != &BB->getParent()->getEntryBlock() &&
+@@ -1186,13 +1208,11 @@
+     // To avoid processing the same predecessor more than once.
+     SmallPtrSet<BasicBlock *, 8> SeenPreds;
+     // All predecessors of BB will be moved to Succ.
+-    SmallPtrSet<BasicBlock *, 8> PredsOfSucc(pred_begin(Succ), pred_end(Succ));
+     Updates.reserve(Updates.size() + 2 * pred_size(BB) + 1);
+     for (auto *PredOfBB : predecessors(BB))
+       // This predecessor of BB may already have Succ as a successor.
+-      if (!PredsOfSucc.contains(PredOfBB))
+-        if (SeenPreds.insert(PredOfBB).second)
+-          Updates.push_back({DominatorTree::Insert, PredOfBB, Succ});
++      if (SeenPreds.insert(PredOfBB).second && !hasEdge(PredOfBB, Succ))
++        Updates.push_back({DominatorTree::Insert, PredOfBB, Succ});
+     SeenPreds.clear();
+     for (auto *PredOfBB : predecessors(BB))
+       if (SeenPreds.insert(PredOfBB).second)

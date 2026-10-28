@@ -1,0 +1,76 @@
+--- a/llvm/include/llvm/Analysis/LazyValueInfo.h
++++ b/llvm/include/llvm/Analysis/LazyValueInfo.h
+@@ -26,10 +26,24 @@
+   class Instruction;
+   class TargetLibraryInfo;
+   class Value;
++  class LazyValueInfo;
++
++/// Returns the number of blocks with cached information and appends to
++/// \p TrackedValues each value whose information is cached. Deleting or
++/// replacing any of these values erases it from every cached block.
++size_t getLazyValueInfoCacheContents(const LazyValueInfo &LVI,
++                                     SmallVectorImpl<Value *> &TrackedValues);
++
++/// Erases the cached information of \p V from every block, the work that
++/// deleting or replacing \p V does.
++void eraseLazyValueInfoValue(LazyValueInfo &LVI, Value *V);
+ 
+ /// This pass computes, caches, and vends lazy value constraint information.
+ class LazyValueInfo {
+   friend class LazyValueInfoWrapperPass;
++  friend size_t getLazyValueInfoCacheContents(const LazyValueInfo &,
++                                              SmallVectorImpl<Value *> &);
++  friend void eraseLazyValueInfoValue(LazyValueInfo &, Value *);
+   AssumptionCache *AC = nullptr;
+   const DataLayout *DL = nullptr;
+   class TargetLibraryInfo *TLI = nullptr;
+--- a/llvm/lib/Analysis/LazyValueInfo.cpp
++++ b/llvm/lib/Analysis/LazyValueInfo.cpp
+@@ -248,6 +248,13 @@
+     /// Inform the cache that a given value has been deleted.
+     void eraseValue(Value *V);
+ 
++    /// Number of blocks with cached information; append the tracked values.
++    size_t getContents(SmallVectorImpl<Value *> &TrackedValues) const {
++      for (const LVIValueHandle &Handle : ValueHandles)
++        TrackedValues.push_back(Handle);
++      return BlockCache.size();
++    }
++
+     /// This is part of the update interface to inform the cache
+     /// that a block has been deleted.
+     void eraseBlock(BasicBlock *BB);
+@@ -471,6 +478,12 @@
+     TheCache.eraseBlock(BB);
+   }
+ 
++  void eraseValue(Value *V) { TheCache.eraseValue(V); }
++
++  size_t getCacheContents(SmallVectorImpl<Value *> &TrackedValues) const {
++    return TheCache.getContents(TrackedValues);
++  }
++
+   /// This is the update interface to inform the cache that an edge from
+   /// PredBB to OldSucc has been threaded to be from PredBB to NewSucc.
+   void threadEdge(BasicBlock *PredBB,BasicBlock *OldSucc,BasicBlock *NewSucc);
+@@ -1973,6 +1986,19 @@
+   }
+ }
+ 
++size_t llvm::getLazyValueInfoCacheContents(
++    const LazyValueInfo &LVI, SmallVectorImpl<Value *> &TrackedValues) {
++  if (!LVI.PImpl)
++    return 0;
++  return static_cast<const LazyValueInfoImpl *>(LVI.PImpl)->getCacheContents(
++      TrackedValues);
++}
++
++void llvm::eraseLazyValueInfoValue(LazyValueInfo &LVI, Value *V) {
++  if (LVI.PImpl)
++    static_cast<LazyValueInfoImpl *>(LVI.PImpl)->eraseValue(V);
++}
++
+ void LazyValueInfo::printLVI(Function &F, DominatorTree &DTree, raw_ostream &OS) {
+   if (PImpl) {
+     getImpl(PImpl, AC, F.getParent()).printLVI(F, DTree, OS);
