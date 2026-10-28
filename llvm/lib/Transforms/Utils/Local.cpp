@@ -1067,6 +1067,28 @@ static void redirectValuesFromPredecessorsToPhi(BasicBlock *BB,
   replaceUndefValuesInPhi(PN, IncomingValues);
 }
 
+/// Whether \p From branches to \p To. The successors of \p From and the
+/// predecessors of \p To are walked alternately, so the cost is bounded by
+/// twice the shorter list: a block with millions of successors or
+/// predecessors, such as a dispatcher, does not have to be walked in full.
+static bool hasEdge(const BasicBlock *From, const BasicBlock *To) {
+  auto Successor = succ_begin(From), SuccessorEnd = succ_end(From);
+  auto Predecessor = pred_begin(To), PredecessorEnd = pred_end(To);
+  while (true) {
+    if (Successor == SuccessorEnd)
+      return false;
+    if (*Successor == To)
+      return true;
+    ++Successor;
+
+    if (Predecessor == PredecessorEnd)
+      return false;
+    if (*Predecessor == From)
+      return true;
+    ++Predecessor;
+  }
+}
+
 bool llvm::TryToSimplifyUncondBranchFromEmptyBlock(BasicBlock *BB,
                                                    DomTreeUpdater *DTU) {
   assert(BB != &BB->getParent()->getEntryBlock() &&
@@ -1186,13 +1208,11 @@ bool llvm::TryToSimplifyUncondBranchFromEmptyBlock(BasicBlock *BB,
     // To avoid processing the same predecessor more than once.
     SmallPtrSet<BasicBlock *, 8> SeenPreds;
     // All predecessors of BB will be moved to Succ.
-    SmallPtrSet<BasicBlock *, 8> PredsOfSucc(pred_begin(Succ), pred_end(Succ));
     Updates.reserve(Updates.size() + 2 * pred_size(BB) + 1);
     for (auto *PredOfBB : predecessors(BB))
       // This predecessor of BB may already have Succ as a successor.
-      if (!PredsOfSucc.contains(PredOfBB))
-        if (SeenPreds.insert(PredOfBB).second)
-          Updates.push_back({DominatorTree::Insert, PredOfBB, Succ});
+      if (SeenPreds.insert(PredOfBB).second && !hasEdge(PredOfBB, Succ))
+        Updates.push_back({DominatorTree::Insert, PredOfBB, Succ});
     SeenPreds.clear();
     for (auto *PredOfBB : predecessors(BB))
       if (SeenPreds.insert(PredOfBB).second)

@@ -14,6 +14,7 @@
 #include "llvm/Analysis/DomTreeUpdater.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Analysis/PostDominators.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Support/GenericDomTree.h"
@@ -22,6 +23,28 @@
 #include <utility>
 
 namespace llvm {
+
+/// Whether \p From branches to \p To. The successors of \p From and the
+/// predecessors of \p To are walked alternately, so the cost is bounded by
+/// twice the shorter list: a block with millions of successors or
+/// predecessors, such as a dispatcher, does not have to be walked in full.
+static bool hasEdge(const BasicBlock *From, const BasicBlock *To) {
+  auto Successor = succ_begin(From), SuccessorEnd = succ_end(From);
+  auto Predecessor = pred_begin(To), PredecessorEnd = pred_end(To);
+  while (true) {
+    if (Successor == SuccessorEnd)
+      return false;
+    if (*Successor == To)
+      return true;
+    ++Successor;
+
+    if (Predecessor == PredecessorEnd)
+      return false;
+    if (*Predecessor == From)
+      return true;
+    ++Predecessor;
+  }
+}
 
 bool DomTreeUpdater::isUpdateValid(
     const DominatorTree::UpdateType Update) const {
@@ -33,7 +56,7 @@ bool DomTreeUpdater::isUpdateValid(
   // Since isUpdateValid() must be called *after* the Terminator of From is
   // altered we can determine if the update is unnecessary for batch updates
   // or invalid for a single update.
-  const bool HasEdge = llvm::is_contained(successors(From), To);
+  const bool HasEdge = hasEdge(From, To);
 
   // If the IR does not match the update,
   // 1. In batch updates, this update is unnecessary.
