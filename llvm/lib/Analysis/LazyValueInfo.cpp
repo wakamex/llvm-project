@@ -248,6 +248,13 @@ namespace {
     /// Inform the cache that a given value has been deleted.
     void eraseValue(Value *V);
 
+    /// Number of blocks with cached information; append the tracked values.
+    size_t getContents(SmallVectorImpl<Value *> &TrackedValues) const {
+      for (const LVIValueHandle &Handle : ValueHandles)
+        TrackedValues.push_back(Handle);
+      return BlockCache.size();
+    }
+
     /// This is part of the update interface to inform the cache
     /// that a block has been deleted.
     void eraseBlock(BasicBlock *BB);
@@ -469,6 +476,12 @@ public:
   /// that a block has been deleted.
   void eraseBlock(BasicBlock *BB) {
     TheCache.eraseBlock(BB);
+  }
+
+  void eraseValue(Value *V) { TheCache.eraseValue(V); }
+
+  size_t getCacheContents(SmallVectorImpl<Value *> &TrackedValues) const {
+    return TheCache.getContents(TrackedValues);
   }
 
   /// This is the update interface to inform the cache that an edge from
@@ -1971,6 +1984,19 @@ void LazyValueInfo::clear(const Module *M) {
   if (PImpl) {
     getImpl(PImpl, AC, M).clear();
   }
+}
+
+size_t llvm::getLazyValueInfoCacheContents(
+    const LazyValueInfo &LVI, SmallVectorImpl<Value *> &TrackedValues) {
+  if (!LVI.PImpl)
+    return 0;
+  return static_cast<const LazyValueInfoImpl *>(LVI.PImpl)->getCacheContents(
+      TrackedValues);
+}
+
+void llvm::eraseLazyValueInfoValue(LazyValueInfo &LVI, Value *V) {
+  if (LVI.PImpl)
+    static_cast<LazyValueInfoImpl *>(LVI.PImpl)->eraseValue(V);
 }
 
 void LazyValueInfo::printLVI(Function &F, DominatorTree &DTree, raw_ostream &OS) {

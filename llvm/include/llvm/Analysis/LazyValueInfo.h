@@ -26,10 +26,24 @@ namespace llvm {
   class Instruction;
   class TargetLibraryInfo;
   class Value;
+  class LazyValueInfo;
+
+/// Returns the number of blocks with cached information and appends to
+/// \p TrackedValues each value whose information is cached. Deleting or
+/// replacing any of these values erases it from every cached block.
+size_t getLazyValueInfoCacheContents(const LazyValueInfo &LVI,
+                                     SmallVectorImpl<Value *> &TrackedValues);
+
+/// Erases the cached information of \p V from every block, the work that
+/// deleting or replacing \p V does.
+void eraseLazyValueInfoValue(LazyValueInfo &LVI, Value *V);
 
 /// This pass computes, caches, and vends lazy value constraint information.
 class LazyValueInfo {
   friend class LazyValueInfoWrapperPass;
+  friend size_t getLazyValueInfoCacheContents(const LazyValueInfo &,
+                                              SmallVectorImpl<Value *> &);
+  friend void eraseLazyValueInfoValue(LazyValueInfo &, Value *);
   AssumptionCache *AC = nullptr;
   const DataLayout *DL = nullptr;
   class TargetLibraryInfo *TLI = nullptr;
