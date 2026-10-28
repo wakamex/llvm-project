@@ -1542,7 +1542,17 @@ public:
   /// ValueHandles - This map keeps track of all of the value handles that are
   /// watching a Value*.  The Value::HasValueHandle bit is used to know
   /// whether or not a value has an entry in this map.
-  using ValueHandlesTy = DenseMap<Value *, ValueHandleBase *>;
+  struct ValueHandleMapInfo : DenseMapInfo<Value *> {
+    static unsigned getHashValue(const Value *V) {
+      // Preserve high address bits in large value-handle tables.
+      uint64_t Key = reinterpret_cast<uintptr_t>(V);
+      Key *= 0xbf58476d1ce4e5b9ULL;
+      Key ^= Key >> 31;
+      return static_cast<unsigned>(Key);
+    }
+  };
+  using ValueHandlesTy =
+      DenseMap<Value *, ValueHandleBase *, ValueHandleMapInfo>;
   ValueHandlesTy ValueHandles;
 
   /// CustomMDKindNames - Map to hold the metadata string to ID mapping.

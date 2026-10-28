@@ -1068,7 +1068,7 @@ void ValueHandleBase::AddToUseList() {
   // reallocate itself, which would invalidate all of the PrevP pointers that
   // point into the old table.  Handle this by checking for reallocation and
   // updating the stale pointers only if needed.
-  DenseMap<Value*, ValueHandleBase*> &Handles = pImpl->ValueHandles;
+  LLVMContextImpl::ValueHandlesTy &Handles = pImpl->ValueHandles;
   const void *OldBucketPtr = Handles.getPointerIntoBucketsArray();
 
   ValueHandleBase *&Entry = Handles[getValPtr()];
@@ -1084,7 +1084,7 @@ void ValueHandleBase::AddToUseList() {
   }
 
   // Okay, reallocation did happen.  Fix the Prev Pointers.
-  for (DenseMap<Value*, ValueHandleBase*>::iterator I = Handles.begin(),
+  for (LLVMContextImpl::ValueHandlesTy::iterator I = Handles.begin(),
        E = Handles.end(); I != E; ++I) {
     assert(I->second && I->first == I->second->getValPtr() &&
            "List invariant broken!");
@@ -1111,7 +1111,7 @@ void ValueHandleBase::RemoveFromUseList() {
   // ValueHandle watching VP.  If so, delete its entry from the ValueHandles
   // map.
   LLVMContextImpl *pImpl = getValPtr()->getContext().pImpl;
-  DenseMap<Value*, ValueHandleBase*> &Handles = pImpl->ValueHandles;
+  LLVMContextImpl::ValueHandlesTy &Handles = pImpl->ValueHandles;
   if (Handles.isPointerIntoBucketsArray(PrevPtr)) {
     Handles.erase(getValPtr());
     getValPtr()->HasValueHandle = false;
